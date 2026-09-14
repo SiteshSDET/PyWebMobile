@@ -128,21 +128,142 @@ def click_nav_item(driver, label):
 
 
 def test_navigate_sections(driver):
-    """Navigate through About -> Skill -> Experience -> Further -> Contact (if present) and take screenshots."""
+    """Discover top navigation links, start from Home, then click each nav item in order one-by-one.
+
+    Behavior:
+    - Load homepage
+    - Find top-level navigation links in document order (link text or href used)
+    - For each nav link: navigate back to HOME, click the link, wait, take screenshot nav_<index>_<label>.png
+    """
+    import time
     driver.get(SITE_URL)
     wait_for_load(driver)
-    sections = ["about", "skill", "skills", "experience", "further", "contact"]
-    for sec in sections:
-        # try clicking the nav item
-        clicked = click_nav_item(driver, sec)
-        if clicked:
-            wait_for_load(driver, timeout=10)
-            # save screenshot named after section
-            safe_name = f"nav_{sec}.png"
-            save_screenshot(driver, safe_name)
-        else:
-            # not found, continue
+
+    # discover candidate nav links (try common nav containers first)
+    candidates = []
+    selectors = ["nav a", "header a", "ul.menu a", "ul.nav a", "a.nav-link", "#navbar a", "a"]
+    for sel in selectors:
+        try:
+            els = driver.find_elements(By.CSS_SELECTOR, sel)
+            if els:
+                # keep visible links only and preserve document order
+                for e in els:
+                    try:
+                        href = e.get_attribute("href") or ""
+                        text = (e.text or e.get_attribute('aria-label') or href).strip()
+                        if not href:
+                            continue
+                        if href.strip().startswith('#'):
+                            # allow anchor links if they have meaningful text
+                            if not text:
+                                continue
+                        if e.is_displayed():
+                            candidates.append((text, href))
+                if candidates:
+                    break
+        except Exception:
             continue
+
+    # deduplicate while preserving order
+    seen = set()
+    navs = []
+    for text, href in candidates:
+        key = (text.lower(), href)
+        if key in seen:
+            continue
+        seen.add(key)
+        navs.append((text, href))
+
+    assert navs, "No navigation links found"
+
+    # ensure 'Home' is first if present; otherwise prepend SITE_URL as home
+    home_index = None
+    for i, (t, h) in enumerate(navs):
+        if 'home' == t.lower() or h.rstrip('/') == SITE_URL.rstrip('/'):
+            home_index = i
+            break
+    if home_index is not None:
+        # rotate so home is first
+        navs = navs[home_index:] + navs[:home_index]
+    else:
+        navs.insert(0, ("Home", SITE_URL))
+
+    # iterate links sequentially, resetting to home before each click
+    import pathlib
+    out = pathlib.Path("artifacts/screenshots")
+    out.mkdir(parents=True, exist_ok=True)
+
+    for idx, (text, href) in enumerate(navs):
+        label = text.lower().replace(' ', '_')[:30]
+        # navigate back to home to have consistent start
+        driver.get(SITE_URL)
+        wait_for_load(driver)
+        # try to find link by href or text and click
+        clicked = False
+        # prefer searching by href first
+        try:
+            # find matching anchors with same href (may be absolute/relative)
+            anchors = driver.find_elements(By.XPATH, f"//a[@href='{href}']")
+            for a in anchors:
+                if a.is_displayed():
+                    try:
+                        a.click()
+                        clicked = True
+                        break
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+        if not clicked:
+            # fallback: find by partial text match
+            try:
+                links = driver.find_elements(By.TAG_NAME, 'a')
+                for a in links:
+                    try:
+                        t = (a.text or a.get_attribute('aria-label') or '').strip().lower()
+                        if not t:
+                            continue
+                        if label.replace('_', ' ') in t or label in t:
+                            if a.is_displayed():
+                                try:
+                                    a.click()
+                                    clicked = True
+                                    break
+                                except Exception:
+                                    continue
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+
+        # if still not clicked, try clicking via JS by searching all anchors and matching href substring
+        if not clicked:
+            try:
+                all_anchors = driver.find_elements(By.TAG_NAME, 'a')
+                for a in all_anchors:
+                    try:
+                        h = a.get_attribute('href') or ''
+                        if href.rstrip('/') in h.rstrip('/') or h.rstrip('/') in href.rstrip('/'):
+                            driver.execute_script('arguments[0].click();', a)
+                            clicked = True
+                            break
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+
+        # wait and capture
+        time.sleep(1)
+        try:
+            wait_for_load(driver, timeout=10)
+        except Exception:
+            pass
+        screenshot_name = f"nav_{idx}_{label}.png"
+        save_screenshot(driver, screenshot_name)
+
+    # Basic assertion: at least Home screenshot exists
+    assert (out / "nav_0_home.png").exists() or len(list(out.glob('nav_*.png'))) > 0
 
 
 def test_body_contains_text(driver):
