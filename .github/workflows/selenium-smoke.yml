@@ -1,0 +1,71 @@
+name: Selenium Smoke Tests
+
+on:
+  push:
+    paths:
+      - 'automation/selenium/**'
+      - '.github/workflows/selenium-smoke.yml'
+  workflow_dispatch: {}
+
+jobs:
+  selenium-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r automation/selenium/requirements.txt
+
+      - name: Install Google Chrome and recording tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget gnupg x11vnc xvfb ffmpeg
+          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list'
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+
+      - name: Run pytest and record display (Xvfb)
+        env:
+          SITE_URL: ${{ secrets.SITE_URL }}
+        run: |
+          set -euo pipefail
+          export DISPLAY=:99
+          # Start virtual frame buffer
+          Xvfb :99 -screen 0 1280x800x24 &
+          XVFB_PID=$!
+          sleep 2
+
+          # Start ffmpeg recording the X display
+          ffmpeg -y -video_size 1280x800 -f x11grab -i :99 -r 10 -preset ultrafast -pix_fmt yuv420p selenium_run.mp4 >/dev/null 2>&1 &
+          FFMPEG_PID=$!
+
+          # Run tests (capture exit code)
+          set +e
+          pytest -q automation/selenium -o log_cli=true
+          RC=$?
+          set -e
+
+          # Stop recording and Xvfb
+          kill $FFMPEG_PID || true
+          kill $XVFB_PID || true
+
+          # Make tests exit with pytest exit code
+          exit $RC
+
+      - name: Upload recording artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: selenium-recording
+          path: |
+            selenium_run.mp4
+            artifacts/screenshots/**
