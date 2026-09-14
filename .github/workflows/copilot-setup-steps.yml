@@ -1,0 +1,27 @@
+name: "Copilot Setup Steps"
+
+on:
+  workflow_dispatch: {}
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Export SITE_URL from secret
+        run: |
+          echo "SITE_URL=${{ secrets.SITE_URL }}" >> $GITHUB_ENV
+
+      - name: Notify
+        run: |
+          echo "Configured SITE_URL for Copilot (masked)"
