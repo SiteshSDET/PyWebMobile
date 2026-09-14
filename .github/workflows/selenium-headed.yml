@@ -1,0 +1,37 @@
+name: Selenium Headed Tests (Self-hosted)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  selenium-headed:
+    runs-on: [self-hosted, copilot-runner]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r automation/selenium/requirements.txt
+
+      - name: Export SITE_URL
+        run: |
+          echo "SITE_URL=${{ secrets.SITE_URL }}" >> $GITHUB_ENV
+
+      - name: Run headed tests
+        run: |
+          export DISPLAY=:1
+          pytest -q automation/selenium/test_selenium_nav.py -o log_cli=true
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: artifacts/screenshots/**
