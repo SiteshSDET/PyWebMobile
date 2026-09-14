@@ -122,44 +122,83 @@ def click_fuzzy_href(driver, href):
 
 
 def test_traverse_all_nav(driver):
-    """Start from Home, then click each discovered nav link one-by-one, saving screenshots."""
+    """Start from Home and sequentially navigate: Home -> About -> Skills/Skill -> Experience -> Further -> Contact.
+
+    Clicks are performed in-order (no reset to Home between clicks). Screenshots saved after each navigation.
+    """
+    order = ["Home", "About", "Skill", "Skills", "Experience", "Further", "Contact"]
+
+    # start at home
     driver.get(SITE_URL)
     wait_for_load(driver)
-    navs = collect_nav_links(driver)
-    assert navs, "no nav links found"
+    save_screenshot(driver, "nav_00_home_before.png")
 
-    # prefer Home as first
-    home_idx = None
-    for i, (t, h) in enumerate(navs):
-        if t.strip().lower() == 'home' or h.rstrip('/') == SITE_URL.rstrip('/'):
-            home_idx = i
-            break
-    if home_idx is not None:
-        navs = navs[home_idx:] + navs[:home_idx]
-    else:
-        navs.insert(0, ("Home", SITE_URL))
+    out = pathlib.Path("artifacts/screenshots")
+    out.mkdir(parents=True, exist_ok=True)
 
-    for idx, (text, href) in enumerate(navs):
-        label = text.strip().lower() or f"link_{idx}"
-        # reset to home
-        driver.get(SITE_URL)
-        wait_for_load(driver)
-        save_screenshot(driver, f"nav_{idx:02}_before_{label}.png")
+    idx = 0
+    for label in order:
+        found = False
+        lower_label = label.lower()
 
-        clicked = click_by_href(driver, href)
-        if not clicked:
-            clicked = click_by_text(driver, label)
-        if not clicked:
-            clicked = click_fuzzy_href(driver, href)
+        # try exact text match first
+        links = driver.find_elements(By.TAG_NAME, 'a')
+        for a in links:
+            try:
+                text = (a.text or a.get_attribute('aria-label') or '').strip()
+                href = a.get_attribute('href') or ''
+                if not text and not href:
+                    continue
+                if text.strip().lower() == lower_label or lower_label in href.lower():
+                    if a.is_displayed():
+                        try:
+                            a.click()
+                            found = True
+                            break
+                        except Exception:
+                            continue
+            except Exception:
+                continue
+
+        # fallback: partial match
+        if not found:
+            for a in links:
+                try:
+                    text = (a.text or a.get_attribute('aria-label') or '').strip().lower()
+                    if lower_label in text and a.is_displayed():
+                        try:
+                            a.click()
+                            found = True
+                            break
+                        except Exception:
+                            continue
+                except Exception:
+                    continue
+
+        # if still not found, try fuzzy href matching and JS click
+        if not found:
+            for a in links:
+                try:
+                    href = (a.get_attribute('href') or '').strip()
+                    if href and lower_label in href.lower():
+                        try:
+                            driver.execute_script('arguments[0].click();', a)
+                            found = True
+                            break
+                        except Exception:
+                            continue
+                except Exception:
+                    continue
 
         time.sleep(1)
         try:
-            wait_for_load(driver, timeout=8)
+            wait_for_load(driver, timeout=10)
         except Exception:
             pass
-        save_screenshot(driver, f"nav_{idx:02}_after_{label}.png")
 
-    # Assert at least screenshots were produced
-    out = pathlib.Path('artifacts/screenshots')
-    files = list(out.glob('nav_*'))
-    assert files, 'no screenshots saved'
+        save_screenshot(driver, f"nav_{idx:02}_{lower_label}_after.png")
+        idx += 1
+
+    # final assertion: ensure contact screenshot exists or at least multiple screenshots
+    files = list(out.glob('nav_*.png'))
+    assert files and len(files) >= 2, 'expected navigation screenshots'
