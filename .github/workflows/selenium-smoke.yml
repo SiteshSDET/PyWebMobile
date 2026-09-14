@@ -66,4 +66,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: selenium-recording
-          path: selenium_run.mp4
+          path: |
+            selenium_run.mp4
+            artifacts/screenshots/**
