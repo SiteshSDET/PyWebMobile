@@ -12,8 +12,11 @@ SITE_URL = os.environ.get("SITE_URL", "https://siteshsdet.netlify.app/")
 @pytest.fixture(scope="module")
 def driver():
     options = webdriver.ChromeOptions()
-    # headless mode, suitable for CI
-    options.add_argument("--headless=new")
+    # honor HEADLESS env var (default: true) so local dev can see the browser when needed
+    headless_env = os.environ.get("HEADLESS", "true").lower()
+    headless = headless_env not in ("0", "false", "no")
+    if headless:
+        options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
